@@ -1,5 +1,5 @@
 ---
-title: "AMF qPCR Hweins primers MiSeq sequencicng"
+title: "AMF qPCR Hewins primers MiSeq sequencicng"
 author: Natacha Bodenhausen
 date: '`r Sys.Date()`'
 output:
@@ -9,21 +9,18 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-
-setwd("your_wd")
-rm(list=ls())
-
-
 knitr::opts_chunk$set(echo = FALSE)
-
-library("ggplot2")
+#library("dplyr")
+#library("ggplot2")
 suppressPackageStartupMessages(library(tidyverse))
 library("phyloseq")
 library(vegan)
+#library(microbiome)
 library(varrank)
 library(knitr)
 library("pander")
 library(emmeans)
+library(RColorBrewer)
 
 # same color as ggplot
 gg_color_hue <- function(n) {
@@ -40,19 +37,34 @@ library(plyr)
 We sequenced product after qPCR with primer pairs AMG1F and AM1. This primer pair was designed to only amplify AMF. However, there is a little bit of product also amplified with samples where we do not expect any AMF (for example Arabidopsis and dad1 watered with high P). 
 
 
+
+## Outline
+
+
+- number of sequences per sample 
+
+- rarefaction analyis
+
+- Barplot per sample at the phylume level
+
+
+
+\newpage
+
 ```{r}
 # Read Taxon table
-taxonTable <- read.table("fungi_ASV.tab", header=TRUE, row.names=1)
+taxonTable <- read.table("../data/fungi_ASV/fungi_ASV.tab", header=TRUE, row.names=1)
+
 
 # Rename sample names so that they match the design table
 rownames(taxonTable)<- gsub("-r1_F_filt.fastq", "",rownames(taxonTable)) # keep only primer name
 rownames(taxonTable) <- gsub("-", "_",rownames(taxonTable)) # use underscore 
 
 # Read taxonomy list
-taxonomy <- read.table("fungi_taxa_SILVA18S_0.5_completed.tab", header=TRUE, row.names=1)
+taxonomy <- read.table("../data/fungi_ASV/fungi_taxa_SILVA18S_0.5_completed.tab", header=TRUE, row.names=1)
 
 # Read design table
-sampleTable <-read.table("design.txt", header=TRUE, row.names = "new_name")
+sampleTable <-read.table("../data/design_qPCR_amplicons_new.txt", header=TRUE, row.names = "new_name")
 
 # order samples in table 1 by by the same order as table 2
 ord = match(rownames(sampleTable), rownames(taxonTable) ) 
@@ -70,24 +82,58 @@ physeq = phyloseq(otu_table(taxonTable, taxa_are_rows = FALSE),
                   sample_data(sampleTable))
 ```
 
-## Quality control
 
-### number of sequences per sample (all samples from JC)
+```{r}
 
-Alain used 4x5 barcodes (24 barcodes), but we have 20 samples, so 4 barcode combinations were theoretically not used.
+# keep V26 and Arabidopsis
+physeq <- subset_samples(physeq, plant %in% c("V26","Arabidopsis"))
 
-All primer combinations were demultiplexed.
-
-
-```{r numberReadsPerSample_16S_before_remvoing_empty}
-# calculate number of sequences per sample
-number_sequences_perSample <- rowSums(otu_table(physeq, taxa_are_rows = TRUE))
-
-# summary(number_sequences_perSample)
-# sum(number_sequences_perSample)
-# ncol(otu_table(physeq))
+# export data from phyloseq object so that I can use older scripts
+#otuTable <- otu_table(physeq, taxa_are_rows = FALSE) # vegan likes to have samples as rows
+#designTable <- sample_data(physeq)
 
 ```
+
+
+## number of sequences per sample 
+
+
+```{r numberReadsPerSample_16S, echo=TRUE}
+# calculate number of sequences per sample
+number_sequences_perSample <- rowSums(otu_table(physeq))
+
+ summary(number_sequences_perSample)
+ 
+ sum(number_sequences_perSample)
+
+# sum(number_sequences_perSample) #282213
+# ncol(otuTable) # number of OTUs # 24
+
+number_ASV_perSample <- rowSums(otu_table(physeq)>0)
+
+summary(number_ASV_perSample)
+
+sum(number_ASV_perSample)
+
+```
+
+
+```{r numberSequences, fig.width=12}
+
+for_ggplot<- cbind(number_sequences_perSample, sample_data(physeq))
+
+
+ggplot(dat=for_ggplot, aes(x = treatment, y = number_sequences_perSample, col = treatment))+
+  geom_jitter( alpha= 0.6)+
+  facet_grid(. ~plant, scales = "free")+
+  xlab("number of sequences per sample")
+
+m1 <- lm(number_sequences_perSample~plant +treatment, data = for_ggplot)
+#summary(m1)
+#anova(m1)
+
+```
+
 
 \newpage
 
@@ -107,18 +153,19 @@ rarefaction_all <- rarecurve(otu_table(physeq),
 
 ```{r rarefaction_plot, fig.width=6, fig.height=4}
 
-library(RColorBrewer)
-two_blue <- brewer.pal(9,name="YlGnBu")[c(4,8)]
+two_blue <- brewer.pal(9,name="YlGnBu")[c(8,4)]
 one_red <-brewer.pal(9,name="YlOrRd")[4]
 three_colors <- c(one_red,two_blue)
   
 mycolor <- as.factor(paste(sample_data(physeq)$plant, sample_data(physeq)$treatment, sep="_"))
+levels(mycolor) # forst V26 high and then low
+
 mycol_barplot<-three_colors[as.integer(mycolor)]
 
 Nmax <- sapply(rarefaction_all, function(x) max(attr(x, "Subsample")))
 Smax <- sapply(rarefaction_all, max)
 
-# pdf("../results/Supplementary_Figure2.pdf", 
+# pdf("../results/Supplementary_FigS3.pdf", 
 #     width=18/cm(1), height=10/cm(1), 
 #     pointsize=11, fonts="Helvetica")
 
@@ -139,27 +186,42 @@ legend("topright", legend=levels(mycolor),
        col=three_colors, 
        bty="n", cex=0.5)
 
-# dev.off()
+#dev.off()
 
 ```
 
+
+
 \newpage
 
-## Examine taxonomy at Class level
-
-I decide not to filter at all but only to normalize (relative abundance).
-
-### barplot with phyloseq package
+## barplot with phyloseq package
 
 ```{r}
-
-#normalize and melt
 physeq_norm<-  transform_sample_counts(physeq, function(x) x / sum(x) )
+
+#rowSums(otu_table(physeq_norm)) # adds up to 1
+
+#dat_merge_tax <- tax_glom(physeq = physeq_norm, "class", NArm = FALSE) 
+
+#physeq_norm, "Phylum", NArm = FALSE)
+
+#molten_dat_class_merge <- psmelt(dat_merge_tax)
+
 molten_dat_class_merge <- psmelt(physeq_norm)
+
+# to do
+# I want to do a barplot at the OTU level
+# check old code, I need to put in grey all the OTUs < certain percentage
+# new column with color
 
 # percentages
 molten_dat_class_merge$Abundance <- 100*molten_dat_class_merge$Abundance
 
+# V26 to Petunia tidyverse DOES NOT WORK
+#molten_dat_class_merge <- molten_dat_class_merge%>% mutate(plant = recode(plant, V26 = "Petunia"))
+#molten_dat_class_merge$plant <- revalue(molten_dat_class_merge$plant , V26="Petunia")
+
+#levels(molten_dat_class_merge$plant)[levels(molten_dat_class_merge$plant)=="V26"] <- "Petunia"
 ```
 
 
@@ -171,33 +233,35 @@ molten_dat_class_merge$color <- molten_dat_class_merge$OTU
 
 # less than threshold are in one category
 molten_dat_class_merge[molten_dat_class_merge$Abundance<2, "color"] <-"less than < 2 %"
+
 molten_dat_class_merge$color <- as.factor(molten_dat_class_merge$color)
 
-nlevels(as.factor(molten_dat_class_merge$color))
+#nlevels(as.factor(molten_dat_class_merge$color))
 
 
 levels(as.factor(molten_dat_class_merge$color))
 
-# re-order OTUs, first less than 2% then unkown below fungi, than Chytridio, finally Glomo
+# re-order OTUs, first less than 2% then unknown below fungi, than Chytridio, finally Glomo
 molten_dat_class_merge <- molten_dat_class_merge %>% 
   mutate(color = fct_relevel(color,c( 
             "less than < 2 %", "ASV6", "ASV7", 
-            "ASV9", "ASV19", "ASV2", 
+            "ASV9", "ASV31", "ASV2", 
             "ASV1", "ASV3","ASV4","ASV5",
             "ASV8","ASV10")))
  
-library(RColorBrewer)
 
 ## pick a color for each ASV based on taxonomy
 # levels(as.factor(molten_dat_class_merge$color))
+
+ 
  
 # Glomeromycotes  => shades of green
 #ASV1, ASV3, ASV4, ASV5, ASV8, ASV10
 six_green <- brewer.pal(9,name="YlGn")[4:9]
 
-# Chytridiomycetes => red
+# Chytridiomycetes => blue
 #ASV2
-red <- brewer.pal(9,name="Reds")[5]
+red <- brewer.pal(9,name="Blues")[5]
 
 # Fungi => blue
 #ASV6, ASV7, ASV9, ASV31
@@ -209,15 +273,16 @@ four_browns <- brewer.pal(9,name="YlOrBr")[c(6:9)]
 mycolor <- c("grey", four_browns, red, six_green)
 
 molten_dat_class_merge$treatment <- as.factor(molten_dat_class_merge$treatment)
+
 molten_dat_class_merge$treatment <- relevel(molten_dat_class_merge$treatment, ref ="low")
 
-levels(as.factor(molten_dat_class_merge$color))
+#levels(as.factor(molten_dat_class_merge$color))
 
 my_name <-  c("less than < 2 %", 
               "ASV6 - Fungi", 
               "ASV7 - Fungi", 
               "ASV9 - Fungi", 
-              "ASV19 - Fungi", 
+              "ASV31 - Fungi", 
               "ASV2 - Chytridiomycetes", 
               "ASV1 - Funneliformis",
               "ASV3 - Scutellospora", 
@@ -233,8 +298,6 @@ my_name <-  c("less than < 2 %",
 
 
 ```{r}
-
-
 plant.labs <- c("Arabidopsis", "Petunia")
 names(plant.labs) <- c("Arabidopsis", "V26")
 treatment.labs<- c("low P","high P")
@@ -247,7 +310,7 @@ p_phyla <- ggplot(molten_dat_class_merge,
   geom_bar(stat = "identity", position = "stack") + 
   facet_grid(~plant*treatment, scales="free", 
              labeller = labeller(plant = plant.labs, treatment = treatment.labs))+
-  scale_fill_manual(labels = my_name, values = mycolor)+
+  scale_fill_manual( labels = my_name, values = mycolor)+ ## TO DO name = myname
   #xlab("") + 
   ylab("Relative abundance [%]") +
   #geom_text(aes(label=replicate, x = Sample, y=1),angle=90, vjust = 0.5, hjust = 2, fontface="plain", size=2.5)+ # does not work since I changed from 0.1 to 1 %
@@ -258,6 +321,11 @@ p_phyla <- ggplot(molten_dat_class_merge,
 
 print(p_phyla) 
 
-#ggsave(" Figure5.pdf", width = 16, height=8, units="cm", dpi=600)
+#ggsave("../results/Figure3.pdf", width = 16, height=8, units="cm", dpi=600)
 
 ```
+
+
+
+
+
